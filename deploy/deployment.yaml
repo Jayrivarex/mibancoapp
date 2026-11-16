@@ -1,5 +1,4 @@
 apiVersion: apps/v1
-# checkov:skip=CKV2_K8S_6: "Network segmentation is handled centrally at the namespace level via Azure CNI"
 kind: Deployment
 metadata:
   name: mibanco-app-deployment
@@ -25,7 +24,6 @@ spec:
           type: RuntimeDefault
       containers:
       - name: mibanco-app
-        # checkov:skip=CKV_K8S_43: "Using semantic version tag for challenge CI/CD artifact immutability"
         image: mibancoacr.azurecr.io/mibanco-app:v1.0.0
         imagePullPolicy: Always
         securityContext:
