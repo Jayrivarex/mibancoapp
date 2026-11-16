@@ -1,0 +1,14 @@
+# Git y documentación que no pinta nada en el contenedor
+.git/
+.gitignore
+README.md
+
+# Directorios de infraestructura (Terraform no va en la imagen Java)
+infra/
+deploy/
+
+# Artefactos locales de Maven para forzar que el Dockerfile compile limpio desde cero en el multi-stage
+target/
+
+# IDEs
+.vscode/

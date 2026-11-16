@@ -1,0 +1,114 @@
+name: 'Security Gates & CI/CD Pipeline'
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  security-events: write # Requerido obligatoriamente por GitHub Advanced Security para subir reportes SARIF
+  actions: read
+
+jobs:
+  # ==========================================
+  # FASE 1: ESCANEOS Y VALIDACIONES EN PARALELO
+  # ==========================================
+
+  secret-scan:
+    name: '1. Secret Scanning (Gitleaks)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  iac-scan:
+    name: '2. IaC & Policy Scan (Checkov & Conftest)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Checkov IaC Scanner (Terraform & K8s YAML)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: . # Escanea infra/ y deploy/
+          framework: terraform,kubernetes
+          output_format: cli
+
+  sast-sca:
+    name: '3. SAST & SCA (CodeQL & Maven)'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven & SCA check
+        run: mvn clean package -DskipTests
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ==========================================
+  # FASE 2: BUILD, CONTAINER SCAN & PUSH
+  # ==========================================
+
+  container-pipeline:
+    name: '4. Build, Trivy Scan & Push to ACR'
+    needs: [secret-scan, iac-scan, sast-sca] # Solo avanza si todas las murallas de seguridad aprueban
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker Image for Scanning
+        run: docker build -t mibanco-app:${{ github.sha }} -t mibanco-app:latest .
+
+      - name: Run Trivy Container Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'mibanco-app:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # ==========================================
+      # CAMBIO CLAVE: Autenticación por OIDC (Sin Passwords)
+      # ==========================================
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to Azure Container Registry (ACR via Azure CLI)
+        run: az acr login --name $(echo ${{ vars.ACR_LOGIN_SERVER }} | cut -d'.' -f1)
+
+      - name: Tag and Push to ACR
+        run: |
+          docker tag mibanco-app:latest ${{ vars.ACR_LOGIN_SERVER }}/mibanco-app:${{ github.sha }}
+          docker tag mibanco-app:latest ${{ vars.ACR_LOGIN_SERVER }}/mibanco-app:latest
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/mibanco-app:${{ github.sha }}
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/mibanco-app:latest

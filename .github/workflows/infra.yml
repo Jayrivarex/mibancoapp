@@ -1,0 +1,101 @@
+name: 'Infra Provisioning & Post-Config (AKS)'
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write # Requerido para Azure OIDC / Workload Identity (recomendación Lead)
+  contents: read
+
+jobs:
+  iac-validate-plan:
+    name: 'Stage 1: Terraform Format, Validate & Plan'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: infra/
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: infra/
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: infra/
+
+      - name: Terraform Plan
+        run: terraform plan -detailed-exitcode
+        working-directory: infra/
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+  iac-apply:
+    name: 'Stage 2: Terraform Apply (Approval Required)'
+    needs: iac-validate-plan
+    runs-on: ubuntu-latest
+    environment: production # Exige aprobación manual de reviewers configurados en GitHub Environments
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: infra/
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: infra/
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+  post-config-aks:
+    name: 'Stage 3: Post-Config (AKS Access, Ingress & Namespace)'
+    needs: iac-apply
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC / Service Principal)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS Credentials
+        run: az aks get-credentials --resource-group rg-mbco-reto --name aks-mbco-reto --overwrite-existing
+
+      - name: Validate kubectl access
+        run: kubectl get nodes
+
+      - name: Create Namespace mbco-reto-ns
+        run: kubectl apply -f deploy/namespace.yaml
+
+      - name: Install Ingress NGINX Controller (Helm)
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx --create-namespace \
+            --set controller.service.type=LoadBalancer

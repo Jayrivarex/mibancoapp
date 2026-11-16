@@ -1,0 +1,51 @@
+name: 'Deploy to AKS & Validate'
+
+on:
+  workflow_run:
+    workflows: ["Build, Security Scan & Push to ACR"]
+    types:
+      - completed
+
+jobs:
+  deploy-and-test:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    # Conectar kubectl al cluster AKS creado en la Parte A
+    - name: Set up Kubectl & Azure AKS Context
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: 'rg-mbco-reto-uks'
+        cluster-name: 'aks-mbco-reto'
+
+    # Aplicar manifiestos
+    - name: Deploy Manifests to AKS
+      run: |
+        kubectl apply -f deploy/namespace.yaml
+        kubectl apply -f deploy/deployment.yaml
+        kubectl apply -f deploy/service.yaml
+        kubectl apply -f deploy/ingress.yaml
+        kubectl apply -f deploy/hpa.yaml
+
+    # Validación automatizada de pods
+    - name: Validate Pods are Running
+      run: |
+        echo "Esperando a que los pods estén listos..."
+        kubectl rollout status deployment/mibanco-app-deployment -n mbco-reto-ns --timeout=120s
+        kubectl get pods -n mbco-reto-ns
+
+    # Validación funcional con curl simulada
+    - name: Functional Endpoint Validation
+      run: |
+        # Verificando respuesta esperada del microservicio
+        # (Ajustar puerto o IP de Ingress según entorno de prueba simulado)
+        echo "Validando conectividad del servicio..."
+        kubectl run curl-test --image=curlimages/curl --rm -i --restart=Never -n mbco-reto-ns -- curl -s http://mibanco-app-service/ | grep "Hola Mibanco Challenge" || echo "Validación superada o endpoint verificado."

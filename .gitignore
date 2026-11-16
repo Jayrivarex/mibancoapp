@@ -1,0 +1,16 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.lock.info
+*.hcl
+
+# Java / Maven
+target/
+*.class
+*.log
+
+# Entorno y OS
+.DS_Store
+Thumbs.db
+.vscode/
