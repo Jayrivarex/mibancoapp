@@ -1,29 +1,31 @@
-terraform {
-  required_version = ">= 1.5.0"
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.110.0"
-    }
-  }
-}
-
 provider "azurerm" {
   features {}
 }
 
-# Creación del Resource Group para aislar los recursos del reto
 resource "azurerm_resource_group" "rg" {
-  name     = var.resource_group_name
+  name     = "rg-mbco-reto-core"
   location = var.location
 }
 
-# Aprovisionamiento automatizado del clúster AKS exigido en el reto
+resource "azurerm_container_registry" "acr" {
+  name                = var.acr_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku                 = "Basic"
+  admin_enabled       = true
+}
+
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = var.cluster_name
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  dns_prefix          = "aks-mbco-reto-dns"
+  dns_prefix          = "aks-mbco-reto"
+
+  # Corrección para CKV_AZURE_115: Habilita el clúster privado
+  private_cluster_enabled = true
+
+  # Corrección para CKV_AZURE_171: Define el canal de actualización automática
+  automatic_upgrade_channel = "patch"
 
   default_node_pool {
     name       = "default"
@@ -40,13 +42,4 @@ resource "azurerm_kubernetes_cluster" "aks" {
     Owner       = "DevSecOps-Lead"
     Project     = "Mibanco-Reto"
   }
-}
-
-# Creación automatizada del Azure Container Registry (ACR) requerido para la Parte B
-resource "azurerm_container_registry" "acr" {
-  name                = "acrmbcoreto"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  sku                 = "Basic"
-  admin_enabled       = true
 }
