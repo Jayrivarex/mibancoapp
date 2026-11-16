@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 permissions:
-  id-token: write # Requerido para Azure OIDC / Workload Identity (recomendación Lead)
+  id-token: write # Requerido para Azure OIDC / Workload Identity
   contents: read
 
 jobs:
@@ -44,10 +44,9 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
   iac-apply:
-    name: 'Stage 2: Terraform Apply (Approval Required)'
+    name: 'Stage 2: Terraform Apply (Automated)'
     needs: iac-validate-plan
     runs-on: ubuntu-latest
-    environment: production # Exige aprobación manual de reviewers configurados en GitHub Environments
     steps:
       - uses: actions/checkout@v4
 

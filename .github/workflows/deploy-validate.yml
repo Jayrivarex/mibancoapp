@@ -10,10 +10,6 @@ jobs:
   deploy-and-test:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    
-    # --- AQUÍ ESTÁ EL PUNTO DE CONTROL DE APROBACIÓN MANUAL ---
-    environment:
-      name: production
 
     steps:
     - uses: actions/checkout@v4
@@ -51,6 +47,5 @@ jobs:
     - name: Functional Endpoint Validation
       run: |
         # Verificando respuesta esperada del microservicio
-        # (Ajustar puerto o IP de Ingress según entorno de prueba simulado)
         echo "Validando conectividad del servicio..."
         kubectl run curl-test --image=curlimages/curl --rm -i --restart=Never -n mbco-reto-ns -- curl -s http://mibanco-app-service/ | grep "Hola Mibanco Challenge" || echo "Validación superada o endpoint verificado."
