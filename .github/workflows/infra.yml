@@ -44,9 +44,10 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
   iac-apply:
-    name: 'Stage 2: Terraform Apply (Automated)'
+    name: 'Stage 2: Terraform Apply (Approval Required)'
     needs: iac-validate-plan
     runs-on: ubuntu-latest
+    environment: production # Exige la aprobación manual (Required Reviewers) configurada en GitHub Environments
     steps:
       - uses: actions/checkout@v4
 
